@@ -18,7 +18,7 @@ class FB2Reader(QMainWindow):
         self.current_font_size = self.default_font_size
         self.current_font = "Georgia"
 
-        # Меню
+        # Menu
         menu_bar = self.menuBar()
 
         file_menu = menu_bar.addMenu("File")
@@ -70,7 +70,7 @@ class FB2Reader(QMainWindow):
         self.view_menu.addAction(self.reset_zoom_action)
         self.view_menu.menuAction().setVisible(False)
 
-        # Виджеты
+        # Widgets
         self.progress = QProgressBar()
         self.progress.setTextVisible(True)
 
@@ -91,7 +91,7 @@ class FB2Reader(QMainWindow):
         )
         self.splash_label.setPixmap(scaled_pixmap)
 
-        self.splash_text = QLabel("Добро пожаловать в FB2Reader")
+        self.splash_text = QLabel("Welcome to FB2Reader")
         self.splash_text.setAlignment(Qt.AlignCenter)
         self.splash_text.setStyleSheet("font-size: 24px; color: #5b4636; background-color: #f4ecd8;")
 
