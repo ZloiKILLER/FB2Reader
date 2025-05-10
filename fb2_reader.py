@@ -1,12 +1,14 @@
-import sys, os, base64, re
+import sys, os, base64, re, json, zipfile
 import xml.etree.ElementTree as ET
+import requests
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
-    QVBoxLayout, QTextBrowser, QProgressBar, QPushButton
+    QApplication, QMainWindow, QWidget, QLabel, QFileDialog, QVBoxLayout,
+    QTextBrowser, QProgressBar, QPushButton, QSizePolicy, QInputDialog,
+    QListWidget, QDialog, QMessageBox
 )
 from PySide6.QtGui import QPixmap, QFontDatabase, QAction
-from PySide6.QtCore import Qt, QPropertyAnimation
+from PySide6.QtCore import Qt
 
 class FB2Reader(QMainWindow):
     def __init__(self):
@@ -18,30 +20,27 @@ class FB2Reader(QMainWindow):
         self.current_font_size = self.default_font_size
         self.current_font = "Georgia"
 
-        # Menu
+        # Меню
         menu_bar = self.menuBar()
-
         file_menu = menu_bar.addMenu("File")
+
         open_action = QAction("Open FB2...", self)
         open_action.triggered.connect(self.open_fb2)
         file_menu.addAction(open_action)
+
+        open_opds_action = QAction("Open from OPDS...", self)
+        open_opds_action.triggered.connect(self.open_opds_catalog)
+        file_menu.addAction(open_opds_action)
 
         close_action = QAction("Close Book", self)
         close_action.triggered.connect(self.close_book)
         file_menu.addAction(close_action)
 
         settings_menu = menu_bar.addMenu("Settings")
-        theme_dark = QAction("Dark Theme", self)
-        theme_dark.triggered.connect(lambda: self.apply_theme("dark"))
-        settings_menu.addAction(theme_dark)
-
-        theme_sepia = QAction("Sepia Theme", self)
-        theme_sepia.triggered.connect(lambda: self.apply_theme("sepia"))
-        settings_menu.addAction(theme_sepia)
-
-        theme_light = QAction("Light Theme", self)
-        theme_light.triggered.connect(lambda: self.apply_theme("light"))
-        settings_menu.addAction(theme_light)
+        for theme, name in [("dark", "Dark Theme"), ("sepia", "Sepia Theme"), ("light", "Light Theme")]:
+            action = QAction(name, self)
+            action.triggered.connect(lambda checked, t=theme: self.apply_theme(t))
+            settings_menu.addAction(action)
 
         font_menu = settings_menu.addMenu("Font")
         for family in sorted(QFontDatabase.families()):
@@ -70,11 +69,13 @@ class FB2Reader(QMainWindow):
         self.view_menu.addAction(self.reset_zoom_action)
         self.view_menu.menuAction().setVisible(False)
 
-        # Widgets
+        # Виджеты
         self.progress = QProgressBar()
         self.progress.setTextVisible(True)
 
         self.content = QTextBrowser()
+        self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.content.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.content.setOpenExternalLinks(True)
         self.content.setReadOnly(True)
         self.content.setFocusPolicy(Qt.StrongFocus)
@@ -101,14 +102,20 @@ class FB2Reader(QMainWindow):
         self.open_button.clicked.connect(self.open_fb2)
 
         layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignHCenter)
-        layout.addStretch()
-        layout.addWidget(self.splash_label)
-        layout.addWidget(self.splash_text)
-        layout.addWidget(self.open_button, alignment=Qt.AlignHCenter)
-        layout.addWidget(self.content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.splash_container = QWidget()
+        splash_layout = QVBoxLayout()
+        splash_layout.setAlignment(Qt.AlignCenter)
+        splash_layout.addWidget(self.splash_label)
+        splash_layout.addWidget(self.splash_text)
+        splash_layout.addWidget(self.open_button, alignment=Qt.AlignHCenter)
+        self.splash_container.setLayout(splash_layout)
+
+        layout.addWidget(self.splash_container, stretch=1)
+        layout.addWidget(self.content, stretch=10)
         layout.addWidget(self.progress)
-        layout.addStretch()
 
         container = QWidget()
         container.setLayout(layout)
@@ -117,12 +124,8 @@ class FB2Reader(QMainWindow):
 
         self.content.hide()
         self.progress.hide()
-
         self.apply_theme("light")
 
-        
-
-    
     def open_fb2(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open FB2", os.getcwd(), "FB2 Files (*.fb2)")
         if path:
@@ -133,12 +136,7 @@ class FB2Reader(QMainWindow):
             tree = ET.parse(filepath)
             root = tree.getroot()
             ns = {'fb2': 'http://www.gribuser.ru/xml/fictionbook/2.0'}
-
-            binaries = {
-                b.attrib["id"]: b.text.strip()
-                for b in root.findall("fb2:binary", ns)
-                if b.text
-            }
+            binaries = {b.attrib["id"]: b.text.strip() for b in root.findall("fb2:binary", ns) if b.text}
 
             html = ""
             cover = root.find(".//fb2:coverpage/fb2:image", ns)
@@ -161,9 +159,7 @@ class FB2Reader(QMainWindow):
                         html += f"<p>{p.text}</p>"
 
             self.content.setHtml(html)
-            self.splash_label.hide()
-            self.splash_text.hide()
-            self.open_button.hide()
+            self.splash_container.hide()
             self.content.show()
             self.progress.show()
             self.zoom_in_action.setVisible(True)
@@ -179,13 +175,8 @@ class FB2Reader(QMainWindow):
         self.content.clear()
         self.content.hide()
         self.progress.hide()
-        self.splash_label.show()
-        self.splash_text.show()
-        self.open_button.show()
+        self.splash_container.show()
         self.view_menu.menuAction().setVisible(False)
-        self.animate_fade_in(self.splash_label)
-        self.animate_fade_in(self.splash_text)
-        self.animate_fade_in(self.open_button)
 
     def update_progress(self):
         bar = self.content.verticalScrollBar()
@@ -215,13 +206,9 @@ class FB2Reader(QMainWindow):
         self.apply_theme("custom")
 
     def apply_theme(self, name):
-        if name == "dark":
-            bg = "#121212"; fg = "#DDDDDD"
-        elif name == "sepia":
-            bg = "#f4ecd8"; fg = "#5b4636"
-        else:
-            bg = "#ffffff"; fg = "#000000"
-
+        if name == "dark": bg, fg = "#121212", "#DDDDDD"
+        elif name == "sepia": bg, fg = "#f4ecd8", "#5b4636"
+        else: bg, fg = "#ffffff", "#000000"
         self.content.setStyleSheet(f"""
             QTextBrowser {{
                 background-color: {bg};
@@ -230,6 +217,45 @@ class FB2Reader(QMainWindow):
                 font-size: {self.current_font_size}px;
             }}
         """)
+
+    def open_opds_catalog(self):
+        try:
+            from opds import open_opds_dialog
+            open_opds_dialog(self, self.load_fb2)
+        except ImportError:
+            QMessageBox.warning(self, "OPDS", "opds.py module not found.")
+        except Exception as e:
+            QMessageBox.critical(self, "OPDS Error", str(e))
+
+    def download_selected(self, list_widget, book_map, dialog):
+        selected = list_widget.currentItem()
+        if not selected:
+            return
+        href = book_map[selected.text()]
+        try:
+            file_path, _ = QFileDialog.getSaveFileName(self, "Save Book As", f"{selected.text()}.fb2", "FB2 Files (*.fb2 *.fb2.zip)")
+            if not file_path:
+                return
+            book_data = requests.get(href).content
+            with open(file_path, "wb") as f:
+                f.write(book_data)
+
+            if file_path.endswith(".zip"):
+                with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                    extracted_files = zip_ref.namelist()
+                    fb2_name = next((f for f in extracted_files if f.endswith(".fb2")), None)
+                    if fb2_name:
+                        zip_ref.extract(fb2_name, os.path.dirname(file_path))
+                        fb2_path = os.path.join(os.path.dirname(file_path), fb2_name)
+                        self.load_fb2(fb2_path)
+                        dialog.accept()
+                        return
+                QMessageBox.warning(self, "Error", "FB2 file not found in ZIP archive.")
+            else:
+                self.load_fb2(file_path)
+                dialog.accept()
+        except Exception as e:
+            QMessageBox.warning(self, "Download Error", str(e))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
