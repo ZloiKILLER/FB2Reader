@@ -3,19 +3,20 @@ import xml.etree.ElementTree as ET
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
-    QVBoxLayout, QTextBrowser, QProgressBar
+    QVBoxLayout, QTextBrowser, QProgressBar, QPushButton
 )
 from PySide6.QtGui import QPixmap, QFontDatabase, QAction
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPropertyAnimation
 
 class FB2Reader(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FB2Reader")
-        self.resize(800, 600)
+        self.resize(1280, 720)
 
         self.default_font_size = 16
         self.current_font_size = self.default_font_size
+        self.current_font = "Georgia"
 
         # Меню
         menu_bar = self.menuBar()
@@ -24,6 +25,10 @@ class FB2Reader(QMainWindow):
         open_action = QAction("Open FB2...", self)
         open_action.triggered.connect(self.open_fb2)
         file_menu.addAction(open_action)
+
+        close_action = QAction("Close Book", self)
+        close_action.triggered.connect(self.close_book)
+        file_menu.addAction(close_action)
 
         settings_menu = menu_bar.addMenu("Settings")
         theme_dark = QAction("Dark Theme", self)
@@ -59,10 +64,11 @@ class FB2Reader(QMainWindow):
         self.zoom_out_action.setVisible(False)
         self.reset_zoom_action.setVisible(False)
 
-        view_menu = menu_bar.addMenu("View")
-        view_menu.addAction(self.zoom_in_action)
-        view_menu.addAction(self.zoom_out_action)
-        view_menu.addAction(self.reset_zoom_action)
+        self.view_menu = menu_bar.addMenu("View")
+        self.view_menu.addAction(self.zoom_in_action)
+        self.view_menu.addAction(self.zoom_out_action)
+        self.view_menu.addAction(self.reset_zoom_action)
+        self.view_menu.menuAction().setVisible(False)
 
         # Виджеты
         self.progress = QProgressBar()
@@ -74,17 +80,49 @@ class FB2Reader(QMainWindow):
         self.content.setFocusPolicy(Qt.StrongFocus)
         self.content.verticalScrollBar().valueChanged.connect(self.update_progress)
 
+        self.splash_label = QLabel()
+        self.splash_label.setAlignment(Qt.AlignCenter)
+        self.original_pixmap = QPixmap("C:/Users/1/Downloads/FB2Reader/data/background.png")
+        scaled_pixmap = self.original_pixmap.scaled(
+            self.original_pixmap.width() // 4,
+            self.original_pixmap.height() // 4,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        self.splash_label.setPixmap(scaled_pixmap)
+
+        self.splash_text = QLabel("Добро пожаловать в FB2Reader")
+        self.splash_text.setAlignment(Qt.AlignCenter)
+        self.splash_text.setStyleSheet("font-size: 24px; color: #5b4636; background-color: #f4ecd8;")
+
+        self.open_button = QPushButton("Open Book")
+        self.open_button.setFixedWidth(200)
+        self.open_button.setStyleSheet("font-size: 18px; padding: 8px; background-color: #e3d1b3; color: #5b4636;")
+        self.open_button.clicked.connect(self.open_fb2)
+
         layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignHCenter)
+        layout.addStretch()
+        layout.addWidget(self.splash_label)
+        layout.addWidget(self.splash_text)
+        layout.addWidget(self.open_button, alignment=Qt.AlignHCenter)
         layout.addWidget(self.content)
         layout.addWidget(self.progress)
+        layout.addStretch()
 
         container = QWidget()
         container.setLayout(layout)
+        container.setStyleSheet("background-color: #f4ecd8;")
         self.setCentralWidget(container)
 
-        self.current_font = "Georgia"
+        self.content.hide()
+        self.progress.hide()
+
         self.apply_theme("light")
 
+        
+
+    
     def open_fb2(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open FB2", os.getcwd(), "FB2 Files (*.fb2)")
         if path:
@@ -123,13 +161,31 @@ class FB2Reader(QMainWindow):
                         html += f"<p>{p.text}</p>"
 
             self.content.setHtml(html)
+            self.splash_label.hide()
+            self.splash_text.hide()
+            self.open_button.hide()
+            self.content.show()
+            self.progress.show()
             self.zoom_in_action.setVisible(True)
             self.zoom_out_action.setVisible(True)
             self.reset_zoom_action.setVisible(True)
+            self.view_menu.menuAction().setVisible(True)
             self.update_progress()
 
         except Exception as e:
             self.content.setPlainText(f"Error loading FB2: {e}")
+
+    def close_book(self):
+        self.content.clear()
+        self.content.hide()
+        self.progress.hide()
+        self.splash_label.show()
+        self.splash_text.show()
+        self.open_button.show()
+        self.view_menu.menuAction().setVisible(False)
+        self.animate_fade_in(self.splash_label)
+        self.animate_fade_in(self.splash_text)
+        self.animate_fade_in(self.open_button)
 
     def update_progress(self):
         bar = self.content.verticalScrollBar()
