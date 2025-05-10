@@ -1,4 +1,4 @@
-import sys, os, base64
+import sys, os, base64, re
 import xml.etree.ElementTree as ET
 
 from PySide6.QtWidgets import (
@@ -13,6 +13,9 @@ class FB2Reader(QMainWindow):
         super().__init__()
         self.setWindowTitle("FB2Reader")
         self.resize(800, 600)
+
+        self.default_font_size = 16
+        self.current_font_size = self.default_font_size
 
         # Меню
         menu_bar = self.menuBar()
@@ -44,6 +47,22 @@ class FB2Reader(QMainWindow):
         custom_font_action = QAction("Choose custom font (.ttf/.otf)", self)
         custom_font_action.triggered.connect(self.select_custom_font)
         font_menu.addAction(custom_font_action)
+
+        self.zoom_in_action = QAction("Zoom In", self)
+        self.zoom_in_action.triggered.connect(lambda: self.adjust_font_size(2))
+        self.zoom_out_action = QAction("Zoom Out", self)
+        self.zoom_out_action.triggered.connect(lambda: self.adjust_font_size(-2))
+        self.reset_zoom_action = QAction("Reset Zoom", self)
+        self.reset_zoom_action.triggered.connect(self.reset_zoom)
+
+        self.zoom_in_action.setVisible(False)
+        self.zoom_out_action.setVisible(False)
+        self.reset_zoom_action.setVisible(False)
+
+        view_menu = menu_bar.addMenu("View")
+        view_menu.addAction(self.zoom_in_action)
+        view_menu.addAction(self.zoom_out_action)
+        view_menu.addAction(self.reset_zoom_action)
 
         # Виджеты
         self.progress = QProgressBar()
@@ -104,6 +123,9 @@ class FB2Reader(QMainWindow):
                         html += f"<p>{p.text}</p>"
 
             self.content.setHtml(html)
+            self.zoom_in_action.setVisible(True)
+            self.zoom_out_action.setVisible(True)
+            self.reset_zoom_action.setVisible(True)
             self.update_progress()
 
         except Exception as e:
@@ -118,15 +140,7 @@ class FB2Reader(QMainWindow):
 
     def set_font(self, family):
         self.current_font = family
-        current = self.content.styleSheet()
-        updated = []
-        for line in current.splitlines():
-            if 'font-family' in line:
-                updated.append(f"    font-family: {family};")
-            else:
-                updated.append(line)
-        stylesheet = "\n".join(updated)
-        self.content.setStyleSheet(stylesheet)
+        self.apply_theme("custom")
 
     def select_custom_font(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Font", os.getcwd(), "Font Files (*.ttf *.otf)")
@@ -136,34 +150,30 @@ class FB2Reader(QMainWindow):
             if families:
                 self.set_font(families[0])
 
+    def adjust_font_size(self, delta):
+        self.current_font_size = max(6, self.current_font_size + delta)
+        self.apply_theme("custom")
+
+    def reset_zoom(self):
+        self.current_font_size = self.default_font_size
+        self.apply_theme("custom")
+
     def apply_theme(self, name):
         if name == "dark":
-            self.content.setStyleSheet(f"""
-                QTextBrowser {{
-                    background-color: #121212;
-                    color: #DDDDDD;
-                    font-family: {self.current_font};
-                    font-size: 16px;
-                }}
-            """)
+            bg = "#121212"; fg = "#DDDDDD"
         elif name == "sepia":
-            self.content.setStyleSheet(f"""
-                QTextBrowser {{
-                    background-color: #f4ecd8;
-                    color: #5b4636;
-                    font-family: {self.current_font};
-                    font-size: 16px;
-                }}
-            """)
+            bg = "#f4ecd8"; fg = "#5b4636"
         else:
-            self.content.setStyleSheet(f"""
-                QTextBrowser {{
-                    background-color: #ffffff;
-                    color: #000000;
-                    font-family: {self.current_font};
-                    font-size: 16px;
-                }}
-            """)
+            bg = "#ffffff"; fg = "#000000"
+
+        self.content.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {bg};
+                color: {fg};
+                font-family: {self.current_font};
+                font-size: {self.current_font_size}px;
+            }}
+        """)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
